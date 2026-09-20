@@ -19,7 +19,11 @@
   },
   "homepage": "https://github.com/kinelmykhailo/web-systems-laba2#readme",
   "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "chai": "^6.2.2",
     "css-loader": "^7.1.5",
+    "mocha": "^12.0.2",
     "sass": "^1.104.1",
     "sass-loader": "^17.0.1",
     "style-loader": "^4.0.0",
