@@ -5,14 +5,17 @@ import { Validation } from '../utils/validators.js';
 import { NotificationService } from '../services/NotificationService.js';
 import { Storage } from '../services/Storage.js';
 
+const REQUIRED_MSG = "Це поле є обов'язковим";
+
 export class AppRenderer {
   private bookLibrary: Library<Book>;
   private userLibrary: Library<User>;
   private appContainer: HTMLElement;
-  
+
   private bookPage: number = 1;
   private userPage: number = 1;
   private itemsPerPage: number = 5;
+  private bookSearch: string = '';
 
   constructor(bookLibrary: Library<Book>, userLibrary: Library<User>) {
     this.bookLibrary = bookLibrary;
@@ -82,24 +85,27 @@ export class AppRenderer {
       yearError.innerText = '';
 
       if (!Validation.isNotEmpty(titleInput.value)) {
-        titleError.innerText = "Це поле є обов'язковим";
+        titleError.innerText = REQUIRED_MSG;
         isValid = false;
       }
       if (!Validation.isNotEmpty(authorInput.value)) {
-        authorError.innerText = "Це поле є обов'язковим";
+        authorError.innerText = REQUIRED_MSG;
         isValid = false;
       }
-      if (!Validation.isValidYear(yearInput.value)) {
-        yearError.innerText = "Введіть коректний рік (4 цифри)";
+      if (!Validation.isNotEmpty(yearInput.value)) {
+        yearError.innerText = REQUIRED_MSG;
+        isValid = false;
+      } else if (!Validation.isValidYear(yearInput.value)) {
+        yearError.innerText = 'Введіть коректний рік (4 цифри)';
         isValid = false;
       }
 
       if (isValid) {
         const newBook = new Book(
           Date.now().toString(),
-          titleInput.value,
-          authorInput.value,
-          Number(yearInput.value)
+          titleInput.value.trim(),
+          authorInput.value.trim(),
+          Number(yearInput.value),
         );
         this.bookLibrary.addItem(newBook);
         Storage.save('books', this.bookLibrary.getAll());
@@ -130,27 +136,50 @@ export class AppRenderer {
     nameInput.className = 'form-control mb-2';
     nameInput.placeholder = "Ім'я";
 
+    const nameError = document.createElement('div');
+    nameError.className = 'text-danger small mb-2';
+
     const emailInput = document.createElement('input');
     emailInput.className = 'form-control mb-2';
     emailInput.placeholder = 'Email';
+
+    const emailError = document.createElement('div');
+    emailError.className = 'text-danger small mb-2';
 
     const btn = document.createElement('button');
     btn.className = 'btn btn-success';
     btn.innerText = 'Додати Користувача';
 
     btn.onclick = () => {
-      if (Validation.isNotEmpty(nameInput.value) && Validation.isNotEmpty(emailInput.value)) {
-        const newUser = new User(Date.now().toString(), nameInput.value, emailInput.value);
+      let isValid = true;
+      nameError.innerText = '';
+      emailError.innerText = '';
+
+      if (!Validation.isNotEmpty(nameInput.value)) {
+        nameError.innerText = REQUIRED_MSG;
+        isValid = false;
+      }
+      if (!Validation.isNotEmpty(emailInput.value)) {
+        emailError.innerText = REQUIRED_MSG;
+        isValid = false;
+      }
+
+      if (isValid) {
+        const newUser = new User(
+          Date.now().toString(),
+          nameInput.value.trim(),
+          emailInput.value.trim(),
+        );
         this.userLibrary.addItem(newUser);
         Storage.save('users', this.userLibrary.getAll());
         this.render();
-      } else {
-        NotificationService.showModal('Помилка', "Всі поля обов'язкові для заповнення!");
       }
     };
 
     card.appendChild(nameInput);
+    card.appendChild(nameError);
     card.appendChild(emailInput);
+    card.appendChild(emailError);
     card.appendChild(btn);
 
     return card;
@@ -168,28 +197,52 @@ export class AppRenderer {
     const searchInput = document.createElement('input');
     searchInput.className = 'form-control mb-3';
     searchInput.placeholder = 'Пошук за назвою або автором...';
+    searchInput.value = this.bookSearch;
+    searchInput.dataset.search = 'true';
+    searchInput.oninput = () => {
+      this.bookSearch = searchInput.value;
+      this.bookPage = 1;
+      this.render();
+
+      // після перерендеру повертаємо фокус у поле пошуку
+      const el = this.appContainer.querySelector<HTMLInputElement>('input[data-search]');
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    };
     card.appendChild(searchInput);
 
     const listGroup = document.createElement('ul');
     listGroup.className = 'list-group mb-3';
 
-    const books = this.bookLibrary.getAll();
-    const filteredBooks = books.filter(b => 
-      b.title.toLowerCase().includes(searchInput.value.toLowerCase()) ||
-      b.author.toLowerCase().includes(searchInput.value.toLowerCase())
-    );
+    const query = this.bookSearch.trim().toLowerCase();
+    const filteredBooks = this.bookLibrary
+      .getAll()
+      .filter(
+        (b) => b.title.toLowerCase().includes(query) || b.author.toLowerCase().includes(query),
+      );
 
     // Пагінація
     const totalPages = Math.ceil(filteredBooks.length / this.itemsPerPage) || 1;
+    if (this.bookPage > totalPages) this.bookPage = totalPages;
+
     const paginatedBooks = filteredBooks.slice(
       (this.bookPage - 1) * this.itemsPerPage,
-      this.bookPage * this.itemsPerPage
+      this.bookPage * this.itemsPerPage,
     );
 
-    paginatedBooks.forEach(book => {
+    if (paginatedBooks.length === 0) {
+      const empty = document.createElement('li');
+      empty.className = 'list-group-item text-muted';
+      empty.innerText = 'Книг не знайдено';
+      listGroup.appendChild(empty);
+    }
+
+    paginatedBooks.forEach((book) => {
       const li = document.createElement('li');
       li.className = 'list-group-item d-flex justify-content-between align-items-center';
-      
+
       const span = document.createElement('span');
       span.innerText = `${book.title} by ${book.author} (${book.year})`;
       li.appendChild(span);
@@ -201,28 +254,47 @@ export class AppRenderer {
         borrowBtn.className = 'btn btn-primary btn-sm me-2';
         borrowBtn.innerText = 'Позичити';
         borrowBtn.onclick = () => {
-          NotificationService.showPrompt('Введіть ID користувача для позичення книги:', (userId) => {
-            const user = this.userLibrary.findById(userId);
-            if (!user) {
-              NotificationService.showModal('Помилка', 'Користувача з таким ID не знайдено!');
-              return;
-            }
-            if (user.borrowedBooksCount >= 3) {
-              NotificationService.showModal('Ліміт вичерпано', 'Користувач не може позичити більше 3-х книг!');
-              return;
-            }
+          NotificationService.showPrompt(
+            'Введіть ID користувача для позичення книги:',
+            (userId) => {
+              if (!Validation.isNotEmpty(userId)) {
+                NotificationService.showModal('Помилка', "Це поле є обов'язковим!");
+                return;
+              }
+              if (!/^\d+$/.test(userId)) {
+                NotificationService.showModal('Помилка', 'ID користувача має містити лише цифри!');
+                return;
+              }
 
-            book.isBorrowed = true;
-            book.borrowedBy = user.id;
-            user.borrowedBooksCount += 1;
+              const user = this.userLibrary.findById(userId);
+              if (!user) {
+                NotificationService.showModal('Помилка', 'Користувача з таким ID не знайдено!');
+                return;
+              }
+              if (user.borrowedBooksCount >= 3) {
+                NotificationService.showModal(
+                  'Ліміт вичерпано',
+                  'Користувач не може позичити більше 3-х книг!',
+                );
+                return;
+              }
 
-            Storage.save('books', this.bookLibrary.getAll());
-            Storage.save('users', this.userLibrary.getAll());
+              book.isBorrowed = true;
+              book.borrowedBy = user.id;
+              user.borrowedBooksCount += 1;
 
-            NotificationService.showModal('Успіх', `${book.title} has been borrowed by ${user.id} ${user.name} (${user.email}).`, () => {
-              this.render();
-            });
-          });
+              Storage.save('books', this.bookLibrary.getAll());
+              Storage.save('users', this.userLibrary.getAll());
+
+              NotificationService.showModal(
+                'Успіх',
+                `${book.title} has been borrowed by ${user.id} ${user.name} (${user.email}).`,
+                () => {
+                  this.render();
+                },
+              );
+            },
+          );
         };
         btnGroup.appendChild(borrowBtn);
       } else {
@@ -252,6 +324,14 @@ export class AppRenderer {
       deleteBtn.className = 'btn btn-danger btn-sm';
       deleteBtn.innerText = 'Видалити';
       deleteBtn.onclick = () => {
+        // якщо книга була позичена — звільняємо слот у користувача
+        if (book.isBorrowed && book.borrowedBy) {
+          const holder = this.userLibrary.findById(book.borrowedBy);
+          if (holder) {
+            holder.borrowedBooksCount = Math.max(0, holder.borrowedBooksCount - 1);
+            Storage.save('users', this.userLibrary.getAll());
+          }
+        }
         this.bookLibrary.removeItem(book.id);
         Storage.save('books', this.bookLibrary.getAll());
         this.render();
@@ -261,11 +341,6 @@ export class AppRenderer {
       li.appendChild(btnGroup);
       listGroup.appendChild(li);
     });
-
-    searchInput.oninput = () => {
-      this.bookPage = 1;
-      this.render();
-    };
 
     card.appendChild(listGroup);
 
@@ -292,17 +367,26 @@ export class AppRenderer {
 
     const users = this.userLibrary.getAll();
     const totalPages = Math.ceil(users.length / this.itemsPerPage) || 1;
+    if (this.userPage > totalPages) this.userPage = totalPages;
+
     const paginatedUsers = users.slice(
       (this.userPage - 1) * this.itemsPerPage,
-      this.userPage * this.itemsPerPage
+      this.userPage * this.itemsPerPage,
     );
 
-    paginatedUsers.forEach(user => {
+    if (paginatedUsers.length === 0) {
+      const empty = document.createElement('li');
+      empty.className = 'list-group-item text-muted';
+      empty.innerText = 'Користувачів немає';
+      listGroup.appendChild(empty);
+    }
+
+    paginatedUsers.forEach((user) => {
       const li = document.createElement('li');
       li.className = 'list-group-item d-flex justify-content-between align-items-center';
 
       const span = document.createElement('span');
-      span.innerText = `${user.id} - ${user.name} (${user.email}) [Книг: ${user.borrowedBooksCount}]`;
+      span.innerText = `${user.id} ${user.name} (${user.email}) [Книг: ${user.borrowedBooksCount}]`;
       li.appendChild(span);
 
       const deleteBtn = document.createElement('button');
@@ -329,7 +413,11 @@ export class AppRenderer {
     return card;
   }
 
-  private createPagination(totalPages: number, currentPage: number, onPageChange: (p: number) => void): HTMLElement {
+  private createPagination(
+    totalPages: number,
+    currentPage: number,
+    onPageChange: (p: number) => void,
+  ): HTMLElement {
     const nav = document.createElement('nav');
     const ul = document.createElement('ul');
     ul.className = 'pagination justify-content-center';
@@ -337,9 +425,10 @@ export class AppRenderer {
     for (let i = 1; i <= totalPages; i++) {
       const li = document.createElement('li');
       li.className = `page-item ${i === currentPage ? 'active' : ''}`;
-      
+
       const a = document.createElement('a');
       a.className = 'page-link';
+      a.href = '#';
       a.innerText = i.toString();
       a.onclick = (e) => {
         e.preventDefault();
