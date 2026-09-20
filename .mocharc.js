@@ -1,0 +1,5 @@
+export default {
+  extension: ['ts'],
+  spec: ['src/test/**/*.ts'],
+  'node-option': ['import=tsx']
+};
